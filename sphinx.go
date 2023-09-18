@@ -109,12 +109,15 @@ const (
 	SPH_FILTER_VALUES = iota
 	SPH_FILTER_RANGE
 	SPH_FILTER_FLOATRANGE
+	SPH_FILTER_STRING
+	SPH_FILTER_STRING_LIST
 )
 
 type filter struct {
 	attr       string
 	filterType int
-	values     []uint64
+	intValues  []uint64
+	strValues  []string
 	umin       uint64
 	umax       uint64
 	fmin       float32
@@ -511,7 +514,7 @@ func (sc *Client) SetFilter(attr string, values []uint64, exclude bool) *Client 
 	sc.filters = append(sc.filters, filter{
 		filterType: SPH_FILTER_VALUES,
 		attr:       attr,
-		values:     values,
+		intValues:  values,
 		exclude:    exclude,
 	})
 	return sc
@@ -552,6 +555,41 @@ func (sc *Client) SetFilterFloatRange(attr string, fmin, fmax float32, exclude b
 		attr:       attr,
 		fmin:       fmin,
 		fmax:       fmax,
+		exclude:    exclude,
+	})
+	return sc
+}
+
+func (sc *Client) SetFilterString(attr string, value string, exclude bool) *Client {
+	if attr == "" {
+		sc.err = fmt.Errorf("SetFilterString > attribute name is empty!")
+		return sc
+	}
+
+	sc.filters = append(sc.filters, filter{
+		filterType: SPH_FILTER_STRING,
+		attr:       attr,
+		strValues:  []string{value},
+		exclude:    exclude,
+	})
+	return sc
+}
+
+func (sc *Client) SetFilterStringList(attr string, values []string, exclude bool) *Client {
+	if attr == "" {
+		sc.err = fmt.Errorf("SetFilterStringList > attribute name is empty!")
+		return sc
+	}
+
+	if len(values) == 0 {
+		sc.err = fmt.Errorf("SetFilterStringList > values is empty!")
+		return sc
+	}
+
+	sc.filters = append(sc.filters, filter{
+		filterType: SPH_FILTER_STRING,
+		attr:       attr,
+		strValues:  values,
 		exclude:    exclude,
 	})
 	return sc
@@ -660,8 +698,8 @@ func (sc *Client) AddQuery(query, index, comment string) (i int, err error) {
 
 		switch f.filterType {
 		case SPH_FILTER_VALUES:
-			req = writeInt32ToBytes(req, len(f.values))
-			for _, v := range f.values {
+			req = writeInt32ToBytes(req, len(f.intValues))
+			for _, v := range f.intValues {
 				req = writeInt64ToBytes(req, v)
 			}
 		case SPH_FILTER_RANGE:
@@ -670,6 +708,16 @@ func (sc *Client) AddQuery(query, index, comment string) (i int, err error) {
 		case SPH_FILTER_FLOATRANGE:
 			req = writeFloat32ToBytes(req, f.fmin)
 			req = writeFloat32ToBytes(req, f.fmax)
+		case SPH_FILTER_STRING:
+			v := f.strValues[0]
+			req = writeInt32ToBytes(req, len(v))
+			req = append(req, []byte(v)...)
+		case SPH_FILTER_STRING_LIST:
+			req = writeInt32ToBytes(req, len(f.strValues))
+			for _, v := range f.strValues {
+				req = writeInt32ToBytes(req, len(v))
+				req = append(req, []byte(v)...)
+			}
 		}
 
 		if f.exclude {
@@ -746,7 +794,7 @@ func (sc *Client) AddQuery(query, index, comment string) (i int, err error) {
 	return len(sc.reqs) - 1, nil
 }
 
-//Returns None on network IO failure; or an array of result set hashes on success.
+// Returns None on network IO failure; or an array of result set hashes on success.
 func (sc *Client) RunQueries() (results []Result, err error) {
 	if len(sc.reqs) == 0 {
 		return nil, fmt.Errorf("RunQueries > No queries defined, issue AddQuery() first.")
@@ -1019,10 +1067,10 @@ func (sc *Client) BuildExcerpts(docs []string, index, words string, opts Excerpt
 }
 
 /*
- Connect to searchd server and update given attributes on given documents in given indexes.
- values[*][0] is docId, must be an uint64.
- values[*][1:] should be int or []int(mva mode)
- 'ndocs'	-1 on failure, amount of actually found and updated documents (might be 0) on success
+Connect to searchd server and update given attributes on given documents in given indexes.
+values[*][0] is docId, must be an uint64.
+values[*][1:] should be int or []int(mva mode)
+'ndocs'	-1 on failure, amount of actually found and updated documents (might be 0) on success
 */
 func (sc *Client) UpdateAttributes(index string, attrs []string, values [][]interface{}, ignorenonexistent bool) (ndocs int, err error) {
 	if index == "" {
@@ -1333,7 +1381,7 @@ func (sc *Client) doRequest(command int, version int, req []byte) (res []byte, e
 		// do nothing
 	case SEARCHD_WARNING:
 		wlen := binary.BigEndian.Uint32(res[0:4])
-		sc.warning = string(res[4:4+wlen])
+		sc.warning = string(res[4 : 4+wlen])
 		res = res[4+wlen:]
 	case SEARCHD_ERROR, SEARCHD_RETRY:
 		wlen := binary.BigEndian.Uint32(res[0:4])
@@ -1383,10 +1431,9 @@ func DegreeToRadian(degree float32) float32 {
 	return degree * math.Pi / 180
 }
 
-
 type byteParser struct {
 	stream []byte
-	p int
+	p      int
 }
 
 func (bp *byteParser) Int32() (i int) {
@@ -1408,7 +1455,7 @@ func (bp *byteParser) Uint64() (i uint64) {
 }
 
 func (bp *byteParser) Float32() (f float32, err error) {
-	buf := bytes.NewBuffer(bp.stream[bp.p : bp.p + 4])
+	buf := bytes.NewBuffer(bp.stream[bp.p : bp.p+4])
 	bp.p += 4
 	if err := binary.Read(buf, binary.BigEndian, &f); err != nil {
 		return 0, err
