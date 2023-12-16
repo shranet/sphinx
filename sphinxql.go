@@ -58,9 +58,9 @@ func (sc *Client) GetDb() (err error) {
 	if sc.DB, err = sql.Open("mysql", addr+"/"); err != nil {
 		return err
 	}
-	
+
 	// FIXME
-	// The returned DB is safe for concurrent use by multiple goroutines and maintains its own pool of idle connections. 
+	// The returned DB is safe for concurrent use by multiple goroutines and maintains its own pool of idle connections.
 	//sc.DB.SetMaxOpenConns(100)
 	sc.DB.SetMaxIdleConns(10)
 
@@ -97,7 +97,7 @@ func (sc *Client) Execute(sqlStr string) (result sql.Result, err error) {
 		}
 	}
 	// It is rare to Close a DB, as the DB handle is meant to be
-        // long-lived and shared between many goroutines.
+	// long-lived and shared between many goroutines.
 	//defer sc.DB.Close()
 	return sc.DB.Exec(sqlStr)
 }
@@ -219,9 +219,9 @@ func (sc *Client) Update(obj interface{}) (rowsAffected int, err error) {
 
 	var updateStr string
 	for i, col := range sc.Columns {
-		if colVals[i][0] == '\'' {
-			return -1, fmt.Errorf("Update > Do not support update string field: %v", colVals)
-		}
+		//if colVals[i][0] == '\'' {
+		//	return -1, fmt.Errorf("Update > Do not support update string field: %v", colVals)
+		//}
 		updateStr += col + "=" + colVals[i] + ","
 	}
 	updateStr = updateStr[:len(updateStr)-1]
